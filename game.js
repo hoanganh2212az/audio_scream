@@ -16,6 +16,8 @@ let character = {
 };
 
 let obstacles = [];
+let coins = [];
+let score = 0;
 let gameOver = false;
 let audioContext;
 let analyser;
@@ -23,14 +25,35 @@ let dataArray;
 let microphone;
 let javascriptNode;
 
+const voiceMeterBar = document.getElementById('voice-meter-bar');
+
 function createObstacle() {
-    const height = Math.random() * (canvas.height / 4) + 50; // Lower the height of the obstacles
-    obstacles.push({
+    const height = Math.random() * (canvas.height / 4) + 100; 
+    const width = Math.random() * 50 + 150;
+    const obstacle = {
         x: canvas.width,
         y: canvas.height - height,
-        width: 50,
+        width: width,
         height: height
-    });
+    };
+    obstacles.push(obstacle);
+    createCoins(obstacle);
+}
+
+function createCoins(obstacle) {
+    const coinRadius = 10;
+    const desiredSpacing = 2; 
+    const numberOfCoins = Math.floor(obstacle.width / (coinRadius * 1 * desiredSpacing));
+    const coinSpacing = (obstacle.width - (numberOfCoins * 2 * coinRadius)) / (numberOfCoins - 1);
+
+    for (let i = 0; i < numberOfCoins; i++) {
+        const coin = {
+            x: obstacle.x + i * (coinRadius * 2 + coinSpacing) + coinRadius,
+            y: obstacle.y - coinRadius,
+            radius: coinRadius
+        };
+        coins.push(coin);
+    }
 }
 
 function drawCharacter() {
@@ -42,6 +65,16 @@ function drawObstacles() {
     ctx.fillStyle = 'green';
     obstacles.forEach(obstacle => {
         ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+    });
+}
+
+function drawCoins() {
+    ctx.fillStyle = 'yellow';
+    coins.forEach(coin => {
+        ctx.beginPath();
+        ctx.arc(coin.x, coin.y, coin.radius, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.closePath();
     });
 }
 
@@ -73,24 +106,51 @@ function updateObstacles() {
     obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
 }
 
+function updateCoins() {
+    coins.forEach(coin => {
+        coin.x -= character.speed;
+    });
+
+    coins = coins.filter(coin => coin.x + coin.radius > 0);
+}
+
 function detectCollision() {
     obstacles.forEach(obstacle => {
-        // Check for collision with the sides of the obstacle
+        // Check if the character is horizontally aligned with the obstacle
         if (character.x < obstacle.x + obstacle.width &&
-            character.x + character.width > obstacle.x &&
-            character.y < obstacle.y + obstacle.height &&
-            character.y + character.height > obstacle.y) {
+            character.x + character.width > obstacle.x) {
+
             // Check if the character lands on top of the obstacle
-            if (character.dy > 0 && character.y + character.height <= obstacle.y + 10) {
+            if (character.y + character.height > obstacle.y &&
+                character.y + character.height - character.dy <= obstacle.y) {
                 character.y = obstacle.y - character.height;
                 character.dy = 0;
                 character.onGround = true;
-            } else {
+            } 
+            // Check for collision with the sides or bottom of the obstacle
+            else if (character.y < obstacle.y + obstacle.height &&
+                     character.y + character.height > obstacle.y) {
                 gameOver = true;
                 document.getElementById('game-over').style.display = 'block';
             }
         }
     });
+
+    coins.forEach((coin, index) => {
+        if (character.x < coin.x + coin.radius &&
+            character.x + character.width > coin.x - coin.radius &&
+            character.y < coin.y + coin.radius &&
+            character.y + character.height > coin.y - coin.radius) {
+            score += 1;
+            coins.splice(index, 1); // Remove the collected coin
+        }
+    });
+}
+
+function drawScore() {
+    ctx.fillStyle = 'black';
+    ctx.font = '24px Arial';
+    ctx.fillText('Score: ' + score, 20, 30);
 }
 
 function gameLoop() {
@@ -100,17 +160,21 @@ function gameLoop() {
 
     drawCharacter();
     drawObstacles();
+    drawCoins();
+    drawScore();
     updateCharacter();
     updateObstacles();
+    updateCoins();
     detectCollision();
 
     requestAnimationFrame(gameLoop);
 }
 
-setInterval(createObstacle, 2000);
+setInterval(createObstacle, 1500); //ms
 
 async function startVoiceControl() {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
+
     analyser = audioContext.createAnalyser();
     analyser.fftSize = 256;
     const bufferLength = analyser.frequencyBinCount;
@@ -118,7 +182,8 @@ async function startVoiceControl() {
 
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     microphone = audioContext.createMediaStreamSource(stream);
-    javascriptNode = audioContext.createScriptProcessor(512, 1, 1); // Reduced buffer size to 512
+    
+    javascriptNode = audioContext.createScriptProcessor(512, 1, 1);
 
     microphone.connect(analyser);
     analyser.connect(javascriptNode);
